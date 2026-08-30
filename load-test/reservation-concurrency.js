@@ -20,6 +20,7 @@ export const options = {
 const created = new Counter("reservation_created");
 const expectedFailure = new Counter("reservation_expected_failure");
 const unexpected = new Counter("reservation_unexpected");
+const expectedReservationStatus = http.expectedStatuses(201, 409, 503);
 
 const baseUrl = (__ENV.API_BASE_URL || "http://127.0.0.1:3000").replace(
   /\/$/,
@@ -74,6 +75,7 @@ export default function (data) {
         authorization: `Bearer ${data.token}`,
         "idempotency-key": `${__VU}-${__ITER}-${Date.now()}`,
       },
+      responseCallback: expectedReservationStatus,
     },
   );
 
