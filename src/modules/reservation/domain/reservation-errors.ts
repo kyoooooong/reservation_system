@@ -15,7 +15,7 @@ export const idempotencyKeyReused = (): AppError =>
     code: "IDEMPOTENCY_KEY_REUSED",
     title: "Idempotency key reused",
     detail:
-      "The same Idempotency-Key was already committed with a different request payload.",
+      "The same Idempotency-Key was already used with a different request payload.",
   });
 
 export const screeningNotFound = (): AppError =>
@@ -62,7 +62,20 @@ export const reservationTemporarilyUnavailable = (): AppError =>
     code: "RESERVATION_TEMPORARILY_UNAVAILABLE",
     title: "Reservation temporarily unavailable",
     detail:
-      "Reservation lock acquisition timed out. Retry with the same Idempotency-Key.",
+      "A reservation lock or database connection was not available within the configured bound. Retry with the same Idempotency-Key.",
+    extra: {
+      retryable: true,
+    },
+    retryAfterSeconds: 1,
+  });
+
+export const reservationAdmissionLimited = (): AppError =>
+  new AppError({
+    status: 429,
+    code: "RESERVATION_ADMISSION_LIMITED",
+    title: "Reservation demand is temporarily limited",
+    detail:
+      "This API instance is protecting its reservation capacity. Retry with the same Idempotency-Key after the Retry-After interval.",
     extra: {
       retryable: true,
     },
@@ -79,6 +92,7 @@ export const databaseConnectionLost = (): AppError =>
     extra: {
       retryable: true,
     },
+    retryAfterSeconds: 1,
   });
 
 export const invariantViolation = (

@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { PgTransactionManager } from "../../infrastructure/db/transaction";
 import { GetReservationsUseCase } from "./application/get-reservations.use-case";
 import { ReserveSeatsUseCase } from "./application/reserve-seats.use-case";
+import { ReservationTrafficGuard } from "./application/reservation-traffic-guard";
 import { PgIdempotencyRepository } from "./infrastructure/pg-idempotency.repository";
 import { PgLockTimeout } from "./infrastructure/pg-lock-timeout";
 import { PgReservationRepository } from "./infrastructure/pg-reservation.repository";
@@ -20,6 +21,7 @@ import { TRANSACTION_MANAGER } from "./ports/transaction-manager.port";
   providers: [
     ReserveSeatsUseCase,
     GetReservationsUseCase,
+    ReservationTrafficGuard,
     { provide: TRANSACTION_MANAGER, useClass: PgTransactionManager },
     { provide: LOCK_TIMEOUT, useClass: PgLockTimeout },
     { provide: IDEMPOTENCY_REPOSITORY, useClass: PgIdempotencyRepository },

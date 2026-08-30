@@ -4,6 +4,7 @@ import { APP_CONFIG, AppConfig } from "../../../common/config/app-config";
 import { AppError } from "../../../common/errors/app-error";
 import { APP_LOGGER, AppLogger } from "../../../common/logging/app-logger";
 import { ReserveCommand } from "../domain/reserve-command";
+import { ReservationTrafficGuard } from "./reservation-traffic-guard";
 import {
   databaseConnectionLost,
   idempotencyKeyReused,
@@ -54,6 +55,7 @@ export class ReserveSeatsUseCase {
     @Inject(RESERVATION_REPOSITORY)
     private readonly reservations: ReservationRepositoryPort,
     @Inject(APP_LOGGER) private readonly logger: AppLogger,
+    private readonly trafficGuard: ReservationTrafficGuard,
   ) {}
 
   async execute(input: {
@@ -70,6 +72,28 @@ export class ReserveSeatsUseCase {
     const requestHash = command.fingerprint();
     const startedAt = performance.now();
 
+    return this.trafficGuard.run(
+      {
+        userId: input.userId,
+        screeningId: command.screeningId,
+        idempotencyKey: input.idempotencyKey,
+        requestHash,
+      },
+      () => this.executeAdmitted(input, command, requestHash, startedAt),
+    );
+  }
+
+  private async executeAdmitted(
+    input: {
+      userId: number;
+      screeningId: number;
+      seatIds: number[];
+      idempotencyKey: string;
+    },
+    command: ReserveCommand,
+    requestHash: string,
+    startedAt: number,
+  ): Promise<ReservationSummary> {
     const execution = await this.withRetry(
       {
         userId: input.userId,
@@ -237,18 +261,29 @@ export class ReserveSeatsUseCase {
           throw mapPgError(error);
         }
         lastError = error;
+        const retryDelayMs = this.nextRetryDelayMs(attempt);
         this.logger.warn(
           {
             event: "reservation.transaction.retry",
             ...context,
             retryNumber: attempt + 1,
             pgCode: pgCode(error),
+            retryDelayMs,
           },
           "retrying reservation transaction",
         );
+        await delay(retryDelayMs);
       }
     }
     throw mapPgError(lastError);
+  }
+
+  private nextRetryDelayMs(attempt: number): number {
+    const cap = Math.min(
+      this.config.reservation.txRetryBaseDelayMs * 2 ** attempt,
+      this.config.reservation.txRetryMaxDelayMs,
+    );
+    return Math.floor(Math.random() * (cap + 1));
   }
 }
 
@@ -263,10 +298,15 @@ const mapPgError = (error: unknown): unknown => {
   }
 
   const code = pgCode(error);
-  if (code === "55P03" || code === "57014") {
+  if (
+    code === "53300" ||
+    code === "55P03" ||
+    code === "57014" ||
+    isPoolAcquireTimeout(error)
+  ) {
     return reservationTemporarilyUnavailable();
   }
-  if (code === "25P03" || code === "25P04" || code === "57P01") {
+  if (code?.startsWith("08") || code === "25P03" || code === "25P04") {
     return databaseConnectionLost();
   }
   return error;
@@ -276,3 +316,12 @@ const pgCode = (error: unknown): string | undefined =>
   typeof error === "object" && error !== null && "code" in error
     ? String(error.code)
     : undefined;
+
+const isPoolAcquireTimeout = (error: unknown): boolean =>
+  error instanceof Error &&
+  error.message === "timeout exceeded when trying to connect";
+
+const delay = (milliseconds: number): Promise<void> =>
+  milliseconds === 0
+    ? Promise.resolve()
+    : new Promise((resolve) => setTimeout(resolve, milliseconds));
