@@ -7,7 +7,9 @@ export const configureSwagger = (app: INestApplication): void => {
     app,
     new DocumentBuilder()
       .setTitle("Movie Reservation API")
-      .setDescription("GC MediEye assignment API")
+      .setDescription(
+        "Movie reservation API with PostgreSQL-backed seat allocation and idempotent retry support.",
+      )
       .setVersion(API_VERSION)
       .addBearerAuth()
       .build(),

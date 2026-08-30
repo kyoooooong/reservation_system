@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-type SignupResponse = {
+type AuthResponse = {
   accessToken: string;
 };
 
@@ -74,7 +74,7 @@ const main = async (): Promise<void> => {
   assert(ready.status === 200, `readyz expected 200, got ${ready.status}`);
 
   const email = `smoke-${Date.now()}-${randomUUID()}@example.com`;
-  const signup = await requestJson<ApiSuccess<SignupResponse>>("/auth/signup", {
+  const signup = await requestJson<ApiSuccess<AuthResponse>>("/auth/signup", {
     method: "POST",
     body: JSON.stringify({
       email,
@@ -86,11 +86,11 @@ const main = async (): Promise<void> => {
   const signupData = expectSuccess(signup.body);
   assert(signupData.accessToken, "signup did not return an access token");
 
-  const login = await requestJson<ApiSuccess<SignupResponse>>("/auth/login", {
+  const login = await requestJson<ApiSuccess<AuthResponse>>("/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password: "password123" }),
   });
-  assert(login.status === 201, `login expected 201, got ${login.status}`);
+  assert(login.status === 200, `login expected 200, got ${login.status}`);
 
   const movies = await requestJson<ApiSuccess<MovieResponse[]>>("/movies");
   assert(movies.status === 200, `movies expected 200, got ${movies.status}`);

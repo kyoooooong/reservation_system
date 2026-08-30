@@ -159,7 +159,7 @@ describe.skipIf(process.env.RUN_E2E !== "1")("reservation API", () => {
     await request(app.getHttpServer())
       .post("/api/v1/auth/login")
       .send({ email: ` ${email.toUpperCase()} `, password: "password123" })
-      .expect(201);
+      .expect(200);
 
     await request(app.getHttpServer())
       .post("/api/v1/auth/login")
