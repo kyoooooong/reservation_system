@@ -19,5 +19,5 @@
   <rect x="820" y="426" width="324" height="150" rx="8" fill="#10261b" stroke="#166534"/>
   <text x="848" y="474" fill="#bbf7d0" font-family="Menlo, Monaco, monospace" font-size="18">UNEXPECTED</text>
   <text x="848" y="540" fill="#4ade80" font-family="Menlo, Monaco, monospace" font-size="56" font-weight="700">0</text>
-  <text x="92" y="632" fill="#cbd5e1" font-family="Menlo, Monaco, monospace" font-size="20">http_req_failed: 0.00%   p95: 23.49ms   expected status: 201, 409, 503</text>
+  <text x="92" y="632" fill="#cbd5e1" font-family="Menlo, Monaco, monospace" font-size="20">http_req_failed: 0.00%   p95: 32.86ms   expected status: 201, 409, 429, 503</text>
 </svg>
