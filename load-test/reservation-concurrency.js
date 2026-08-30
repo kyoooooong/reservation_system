@@ -18,9 +18,10 @@ export const options = {
 };
 
 const created = new Counter("reservation_created");
-const expectedFailure = new Counter("reservation_expected_failure");
+const conflict = new Counter("reservation_conflict");
+const capacityRejected = new Counter("reservation_capacity_rejected");
 const unexpected = new Counter("reservation_unexpected");
-const expectedReservationStatus = http.expectedStatuses(201, 409, 503);
+const expectedReservationStatus = http.expectedStatuses(201, 409, 429, 503);
 
 const baseUrl = (__ENV.API_BASE_URL || "http://127.0.0.1:3000").replace(
   /\/$/,
@@ -83,8 +84,12 @@ export default function (data) {
     created.add(1);
     return;
   }
-  if (response.status === 409 || response.status === 503) {
-    expectedFailure.add(1);
+  if (response.status === 409) {
+    conflict.add(1);
+    return;
+  }
+  if (response.status === 429 || response.status === 503) {
+    capacityRejected.add(1);
     return;
   }
   unexpected.add(1);
