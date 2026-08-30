@@ -89,8 +89,11 @@ describe.skipIf(process.env.RUN_E2E !== "1")("reservation API", () => {
     process.env.PG_STATEMENT_TIMEOUT_MS = "5000";
     process.env.PG_IDLE_IN_TX_TIMEOUT_MS = "6000";
     process.env.PG_TRANSACTION_TIMEOUT_MS = "7000";
-    process.env.PG_IDEMPOTENCY_LOCK_TIMEOUT_MS = "500";
-    process.env.PG_SEAT_LOCK_TIMEOUT_MS = "300";
+    process.env.PG_IDEMPOTENCY_LOCK_TIMEOUT_MS = "300";
+    process.env.PG_SEAT_LOCK_TIMEOUT_MS = "500";
+    process.env.RESERVATION_ADMISSION_MAX_IN_FLIGHT = "8";
+    process.env.RESERVATION_ADMISSION_MAX_QUEUE = "16";
+    process.env.RESERVATION_ADMISSION_QUEUE_TIMEOUT_MS = "250";
 
     pool = new Pool({ connectionString: databaseUrl });
     await pool.query(
@@ -434,7 +437,10 @@ describe.skipIf(process.env.RUN_E2E !== "1")("reservation API", () => {
 
     const created = responses.filter((response) => response.status === 201);
     const expectedFailures = responses.filter(
-      (response) => response.status === 409 || response.status === 503,
+      (response) =>
+        response.status === 409 ||
+        response.status === 429 ||
+        response.status === 503,
     );
     expect(created).toHaveLength(1);
     expect(expectedFailures).toHaveLength(9);
@@ -454,6 +460,41 @@ describe.skipIf(process.env.RUN_E2E !== "1")("reservation API", () => {
     const reservationCount = await pool.query<{ count: string }>(
       `
         SELECT count(DISTINCT r.id)::text AS count
+          FROM reservations r
+          JOIN screening_seats ss ON ss.reservation_id = r.id
+         WHERE ss.screening_id = $1
+           AND ss.seat_id = $2
+      `,
+      [target.screeningId, target.seatId],
+    );
+    expect(reservationCount.rows[0]?.count).toBe("1");
+  });
+
+  it("returns one reservation for concurrent retries with the same idempotency key", async () => {
+    const auth = await signupUser("same-key-burst");
+    const target = await findAvailableSeat();
+    const idempotencyKey = randomUUID();
+
+    const responses = await Promise.all(
+      Array.from({ length: 10 }, () =>
+        request(app.getHttpServer())
+          .post(`/api/v1/screenings/${target.screeningId}/reservations`)
+          .set("Authorization", `Bearer ${auth.accessToken}`)
+          .set("Idempotency-Key", idempotencyKey)
+          .send({ seatIds: [target.seatId] })
+          .expect(201),
+      ),
+    );
+
+    const reservationIds = responses.map(
+      (response) =>
+        expectSuccess<ReservationResponse>(response.body).reservationId,
+    );
+    expect(new Set(reservationIds).size).toBe(1);
+
+    const reservationCount = await pool.query<{ count: string }>(
+      `
+        SELECT count(*)::text AS count
           FROM reservations r
           JOIN screening_seats ss ON ss.reservation_id = r.id
          WHERE ss.screening_id = $1
