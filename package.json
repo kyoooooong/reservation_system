@@ -1,0 +1,58 @@
+{
+  "name": "reservation-system",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Movie ticket reservation API for the GC MediEye engineering assignment.",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=24.19.0 <25"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:seed": "tsx scripts/seed.ts",
+    "db:migrate:seed": "tsx scripts/migrate-and-seed.ts",
+    "format": "prettier --write .",
+    "lint": "eslint .",
+    "smoke:api": "tsx scripts/smoke-api.ts",
+    "start": "node dist/src/main.js",
+    "start:dev": "tsx watch src/main.ts",
+    "submission:zip": "tsx scripts/create-submission-zip.ts",
+    "test": "vitest run tests/*.spec.ts",
+    "test:e2e": "vitest run tests/e2e.spec.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "12.0.1",
+    "@nestjs/config": "12.0.0",
+    "@nestjs/core": "12.0.1",
+    "@nestjs/jwt": "12.0.1",
+    "@nestjs/platform-express": "12.0.1",
+    "@nestjs/swagger": "12.0.0",
+    "@prometheus-io/client": "0.16.1",
+    "argon2": "0.45.1",
+    "class-transformer": "0.5.1",
+    "class-validator": "0.15.1",
+    "dotenv": "17.4.2",
+    "pg": "8.23.0",
+    "pino": "10.3.1",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@nestjs/testing": "12.0.1",
+    "@types/express": "5.0.6",
+    "@types/node": "26.4.0",
+    "@types/pg": "8.23.1",
+    "@types/supertest": "7.2.1",
+    "eslint": "10.9.1",
+    "prettier": "3.9.6",
+    "supertest": "7.2.2",
+    "testcontainers": "12.1.0",
+    "tsx": "4.23.12",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.68.0",
+    "vitest": "4.1.11"
+  }
+}
