@@ -5,7 +5,11 @@ description: Review and verify the GC MediEye movie reservation assignment with 
 
 # GC MediEye Reservation
 
-Use this skill when working on this repository's architecture, reservation correctness, PostgreSQL behavior, README/ADR claims, or verification flow.
+Use this skill when working on this repository's architecture, reservation correctness, PostgreSQL behavior, README claims, or verification flow.
+
+## Alignment
+
+`AGENTS.md` is the canonical policy. This Claude skill is a task checklist, not an independent architecture document. It follows the same non-negotiable reservation rules as the Codex skill while keeping Claude's project entry point concise. Run `pnpm guidance:check` after changing guidance files.
 
 ## Scope
 
@@ -24,12 +28,13 @@ Use this skill when working on this repository's architecture, reservation corre
 - Do not filter `reservation_id IS NULL` in the lock query. Lock first, then distinguish missing seats from already reserved seats.
 - Use guarded seat assignment as defense in depth. Unexpected affected row counts are internal invariant violations.
 
-## Documentation
+## Documentation And API Semantics
 
 - README should state implemented behavior and observed verification only.
-- Keep long alternatives and rejected designs in `docs/adr/`.
+- Keep design alternatives, rejected options, diagrams, and verification evidence in the single submitted README rather than a separate ADR tree.
 - Avoid internal handoff language, review-round history, or self-instruction text in submitted docs.
 - When citing version-sensitive facts, prefer primary documentation or executable checks.
+- Use `201` for created user/reservation representations, `200` for reads and stateless login, and `204` only when a future success intentionally has no response body.
 
 ## API Boundary
 
@@ -57,3 +62,5 @@ pnpm smoke:api
 ```
 
 If Docker image pull, Docker Desktop, or network access blocks verification, report the blocked command directly.
+
+Treat AI output as a hypothesis. Inspect the relevant path and use the narrowest executable check before making a design or verification claim.

@@ -5,7 +5,11 @@ description: Help implement, review, and verify this GC MediEye movie reservatio
 
 # GC MediEye Reservation
 
-Use this skill for work inside this repository when the task touches architecture, reservation correctness, PostgreSQL behavior, README/ADR claims, or end-to-end verification.
+Use this skill for work inside this repository when the task touches architecture, reservation correctness, PostgreSQL behavior, README claims, or end-to-end verification.
+
+## Alignment
+
+`AGENTS.md` is the canonical policy. This Codex skill is intentionally shorter and task-oriented: it makes the reservation invariants easy to load during implementation or review without creating a second source of architecture decisions. `CLAUDE.md` and the Claude skill must preserve the same non-negotiable rules. Run `pnpm guidance:check` after changing any of them.
 
 ## Scope
 
@@ -24,12 +28,13 @@ Use this skill for work inside this repository when the task touches architectur
 - Do not filter `reservation_id IS NULL` in the lock query. Lock first, then distinguish missing seats from already reserved seats.
 - Use guarded seat assignment as defense-in-depth. Unexpected affected row counts are internal invariant violations.
 
-## Documentation
+## Documentation And API Semantics
 
 - README should state implemented behavior and observed verification only.
-- Keep long alternatives and rejected designs in `docs/adr/`.
+- Keep design alternatives, rejected options, diagrams, and verification evidence in the single submitted README rather than a separate ADR tree.
 - Avoid internal handoff language, review-round history, or self-instruction text in submitted docs.
 - When citing version-sensitive facts, prefer primary documentation or executable checks.
+- Use `201` for created user/reservation representations, `200` for reads and stateless login, and `204` only when a future success intentionally has no response body.
 
 ## API Boundary
 
@@ -57,6 +62,8 @@ pnpm smoke:api
 ```
 
 If Docker image pull, Docker Desktop, or network access blocks verification, say exactly which command was blocked. Do not claim compose or e2e was verified unless it actually ran.
+
+Treat AI output as a hypothesis. Inspect the relevant path and use the narrowest executable check before making a design or verification claim.
 
 ## Git Boundary
 

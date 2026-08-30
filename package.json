@@ -14,6 +14,7 @@
     "db:seed": "tsx scripts/seed.ts",
     "db:migrate:seed": "tsx scripts/migrate-and-seed.ts",
     "format": "prettier --write .",
+    "guidance:check": "tsx scripts/check-agent-guidance.ts",
     "lint": "eslint .",
     "smoke:api": "tsx scripts/smoke-api.ts",
     "start": "node dist/src/main.js",
