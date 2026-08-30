@@ -24,6 +24,11 @@ export type AppConfig = {
   reservation: {
     maxSeats: number;
     txRetryAttempts: number;
+    txRetryBaseDelayMs: number;
+    txRetryMaxDelayMs: number;
+    admissionMaxInFlight: number;
+    admissionMaxQueue: number;
+    admissionQueueTimeoutMs: number;
   };
 };
 
@@ -120,6 +125,23 @@ export const loadAppConfig = (): AppConfig => {
     reservation: {
       maxSeats: readInt("RESERVATION_MAX_SEATS", 8, { min: 1 }),
       txRetryAttempts: readInt("RESERVATION_TX_RETRY_ATTEMPTS", 2, { min: 0 }),
+      txRetryBaseDelayMs: readInt("RESERVATION_TX_RETRY_BASE_DELAY_MS", 25, {
+        min: 0,
+      }),
+      txRetryMaxDelayMs: readInt("RESERVATION_TX_RETRY_MAX_DELAY_MS", 100, {
+        min: 0,
+      }),
+      admissionMaxInFlight: readInt("RESERVATION_ADMISSION_MAX_IN_FLIGHT", 8, {
+        min: 1,
+      }),
+      admissionMaxQueue: readInt("RESERVATION_ADMISSION_MAX_QUEUE", 16, {
+        min: 0,
+      }),
+      admissionQueueTimeoutMs: readInt(
+        "RESERVATION_ADMISSION_QUEUE_TIMEOUT_MS",
+        250,
+        { min: 1 },
+      ),
     },
   };
 
@@ -133,9 +155,31 @@ export const loadAppConfig = (): AppConfig => {
       "PG_SEAT_LOCK_TIMEOUT_MS must be less than PG_STATEMENT_TIMEOUT_MS",
     );
   }
+  if (config.pg.statementTimeoutMs >= config.pg.transactionTimeoutMs) {
+    throw new Error(
+      "PG_STATEMENT_TIMEOUT_MS must be less than PG_TRANSACTION_TIMEOUT_MS",
+    );
+  }
+  if (config.pg.idempotencyLockTimeoutMs >= config.pg.seatLockTimeoutMs) {
+    throw new Error(
+      "PG_IDEMPOTENCY_LOCK_TIMEOUT_MS must be less than PG_SEAT_LOCK_TIMEOUT_MS",
+    );
+  }
   if (config.pg.idleInTxTimeoutMs >= config.pg.transactionTimeoutMs) {
     throw new Error(
       "PG_IDLE_IN_TX_TIMEOUT_MS must be less than PG_TRANSACTION_TIMEOUT_MS",
+    );
+  }
+  if (
+    config.reservation.txRetryBaseDelayMs > config.reservation.txRetryMaxDelayMs
+  ) {
+    throw new Error(
+      "RESERVATION_TX_RETRY_BASE_DELAY_MS must not exceed RESERVATION_TX_RETRY_MAX_DELAY_MS",
+    );
+  }
+  if (config.reservation.admissionMaxInFlight > config.pg.poolMax) {
+    throw new Error(
+      "RESERVATION_ADMISSION_MAX_IN_FLIGHT must not exceed PG_POOL_MAX",
     );
   }
   if (nodeEnv === "production") {
@@ -150,6 +194,11 @@ export const loadAppConfig = (): AppConfig => {
     if (config.jwt.secret === LOCAL_JWT_SECRET) {
       throw new Error(
         "JWT_SECRET must not use the local default in production",
+      );
+    }
+    if (config.jwt.secret.length < 32) {
+      throw new Error(
+        "JWT_SECRET must be at least 32 characters when NODE_ENV=production",
       );
     }
   }
