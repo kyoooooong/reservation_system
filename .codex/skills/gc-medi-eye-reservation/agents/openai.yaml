@@ -1,0 +1,3 @@
+interface:
+  display_name: "GC MediEye Reservation"
+  short_description: "Verify the GC MediEye reservation assignment"
