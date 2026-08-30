@@ -2,22 +2,27 @@
 
 영화 목록, 상영 시간, 좌석 조회, 예매와 예매 내역 조회를 제공하는 Node.js + PostgreSQL API입니다.
 
-이 시스템을 좌석 row 하나를 update하는 CRUD로 보지 않았습니다. 여러 사용자가 같은 좌석을 고르는 순간에는 누가 먼저 요청했는가보다, DB가 한 좌석의 소유자를 한 번만 확정하는지가 중요합니다. 또 예매가 commit된 뒤 응답이 사라지면 사용자는 성공했는지 알 수 없습니다. 구현의 중심을 좌석 소유권 확정, 응답 유실 뒤 재시도, 짧은 DB 자원 점유에 둔 이유입니다.
+이 시스템에서 가장 중요한 질문은 두 가지입니다. 같은 좌석 요청이 동시에 들어올 때 DB가 소유자를 정확히 한 번만 확정하는가, 그리고 commit 뒤 응답이 유실됐을 때 사용자가 같은 예매 결과를 다시 확인할 수 있는가입니다. 구현은 이 두 질문을 PostgreSQL transaction과 실제 실행 검증으로 답하는 데 집중했습니다.
+
+## 한눈에 보는 핵심
+
+| 확인할 문제             | 선택                                                                        | 근거와 확인 방법                                                                                                     |
+| ----------------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| 같은 좌석의 동시 예매   | 요청 좌석을 seat_id 순으로 잠근 뒤 하나의 transaction에서 확정              | PostgreSQL e2e와 k6 10 VU 경쟁에서 201 한 건, 정상 경쟁 결과 409 아홉 건, 예상 밖 결과 0건을 확인했습니다.           |
+| commit 뒤 응답 유실     | Idempotency-Key와 request hash를 reservation 생성과 같은 transaction에 기록 | 같은 key와 body는 같은 reservation을 반환하고, 다른 body는 422로 거절하는 e2e와 smoke 흐름을 실행했습니다.           |
+| 예매 실패의 사용자 경험 | 짧은 lock timeout, 503과 Retry-After, 같은 key 재시도                       | lock wait을 UI 대기 시간으로 약속하지 않고 DB 자원 점유 상한으로 둡니다. 409와 일시 실패를 다른 흐름으로 안내합니다. |
+| 제출 이후의 검토 가능성 | API 계약, 로그, metrics, 테스트, 지침을 코드와 함께 관리                    | Swagger, compose smoke, Prometheus scrape, lint의 dependency rule, guidance drift 검사를 실제로 실행했습니다.        |
 
 ## 목차
 
-1. [구현 범위](#구현-범위)
-2. [실행과 화면](#실행과-화면)
-3. [구조와 데이터 흐름](#구조와-데이터-흐름)
-4. [API 계약과 응답 기준](#api-계약과-응답-기준)
-5. [데이터 모델](#데이터-모델)
-6. [좌석 예매 정합성](#좌석-예매-정합성)
-7. [사용자 경험과 장애 처리](#사용자-경험과-장애-처리)
-8. [선택한 이유](#선택한-이유)
-9. [설정 cache index](#설정-cache-index)
-10. [로그와 모니터링](#로그와-모니터링)
-11. [테스트와 부하 검증](#테스트와-부하-검증)
-12. [AI 작업 기준](#ai-작업-기준)
+1. [구현 범위와 실행](#구현-범위)
+2. [구조와 데이터 흐름](#구조와-데이터-흐름)
+3. [API 계약과 인증 경계](#api-계약과-응답-기준)
+4. [데이터 모델과 좌석 정합성](#데이터-모델)
+5. [장애와 사용자 경험](#사용자-경험과-장애-처리)
+6. [기술 선택과 운영 기준](#선택한-이유)
+7. [검증과 부하 테스트](#테스트와-부하-검증)
+8. [AI 작업 기준](#ai-작업-기준)
 
 ## 구현 범위
 
@@ -59,9 +64,7 @@ Prometheus와 Grafana는 API 자체를 확인하는 기본 실행에 넣지 않�
 docker compose --profile monitoring up --build
 ```
 
-Prometheus는 http://localhost:9090, Grafana는 http://localhost:3001에서 확인할 수 있습니다. Grafana의 admin / admin 계정은 로컬 확인용입니다. 운영 환경에서는 별도 secret을 주입하고, /metrics는 public internet이 아닌 내부 network 또는 gateway 보호 범위에 둡니다.
-
-![Prometheus가 reservation-api metrics endpoint를 정상 scrape한 화면](docs/images/prometheus-target.png)
+Prometheus는 http://localhost:9090, Grafana는 http://localhost:3001에서 확인할 수 있습니다. Grafana의 admin / admin 계정은 로컬 확인용입니다. 운영 환경에서는 별도 secret을 주입하고, /metrics는 public internet이 아닌 내부 network 또는 gateway 보호 범위에 둡니다. 모니터링 화면은 반복적인 운영 확인용이라 README에는 넣지 않고, 동시성 결과 화면만 검증 근거로 남겼습니다.
 
 volume까지 초기화해야 할 때만 다음 명령을 사용합니다.
 
@@ -86,19 +89,27 @@ Node.js 24 LTS와 PostgreSQL 18 이상을 기준으로 작성했습니다. 개�
 
 ```mermaid
 flowchart LR
-    Client[Client or Swagger] -->|HTTPS JSON| API[NestJS API]
-    API --> Auth[JWT Guard and Public Route Whitelist]
-    Auth --> Catalog[Catalog Read Module]
-    Auth --> Reservation[Reservation Use Case]
-    Catalog --> PG[(PostgreSQL)]
-    Reservation -->|READ COMMITTED transaction| PG
-    API --> Logs[Pino JSON stdout]
-    API --> Metrics[/metrics]
-    Metrics --> Prometheus[Prometheus profile]
-    Prometheus --> Grafana[Grafana profile]
+    client["Client / Swagger"] -->|"HTTPS JSON"| api["NestJS API"]
+    api --> guard["JWT guard / public route whitelist"]
+    guard --> catalog["Catalog query"]
+    guard --> reservation["Reservation use case"]
+    catalog --> database["PostgreSQL"]
+    reservation -->|"READ COMMITTED transaction"| database
+    api --> logs["Pino JSON stdout"]
+    api --> metrics["Metrics endpoint"]
+    metrics --> prometheus["Prometheus profile"]
+    prometheus --> grafana["Grafana"]
 ```
 
 하나의 프로세스와 하나의 PostgreSQL에서 시작하는 modular monolith입니다. 배포 단위를 처음부터 나누면 네트워크 실패와 데이터 일관성 경계가 늘어납니다. 현재 규모에서 더 중요한 것은 예매 write path를 짧고 읽기 쉽게 유지하는 일이므로 모듈 경계만 분명히 했습니다.
+
+### 이 구조에서 확인하려는 것
+
+| 질문                                      | 코드에서의 답                                                                                            | 검증 위치                                      |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| framework가 좌석 정합성을 대신 보장하는가 | 아닙니다. NestJS는 HTTP 경계와 validation을 맡고, 소유권 판정은 PostgreSQL transaction이 맡습니다.       | reservation use case와 PostgreSQL e2e          |
+| lock SQL을 ORM 뒤에 숨겨도 되는가         | 이 흐름에서는 lock 순서와 guarded update가 핵심이므로 직접 SQL로 드러냈습니다.                           | repository의 SELECT FOR UPDATE, guarded UPDATE |
+| 처음부터 서비스 분리가 필요한가           | 아닙니다. 지금은 한 DB transaction이 가장 중요한 경계이므로 모듈만 나누고 배포 단위는 하나로 유지합니다. | compose, module import lint                    |
 
 | 영역                | 코드 구조                                                         | 선택한 이유                                                                                               |
 | ------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
@@ -450,10 +461,10 @@ HTTP label은 숫자 id와 UUID를 그대로 쓰지 않고 /:id, /:uuid로 정�
 
 ```mermaid
 flowchart TD
-    Unit[Unit config cursor command] --> E2E[E2E real PostgreSQL JWT lock FK]
-    E2E --> Smoke[Compose smoke full HTTP user flow]
-    Smoke --> K6[k6 same-seat concurrent requests]
-    K6 --> Manual[Swagger cache headers Prometheus target]
+    unit["Unit tests: config, cursor, command"] --> e2e["PostgreSQL e2e: JWT, lock, FK"]
+    e2e --> smoke["Compose smoke: full HTTP flow"]
+    smoke --> k6["k6: same-seat concurrency"]
+    k6 --> manual["Manual: Swagger, cache headers, metrics"]
 ```
 
 ```bash
@@ -483,6 +494,8 @@ k6 run load-test/reservation-concurrency.js
 ### k6 시나리오가 말해 주는 것과 말해 주지 않는 것
 
 load-test/reservation-concurrency.js는 10 VU가 같은 screeningId와 seatId로 예매를 요청하는 테스트입니다. 기대값은 201 한 건, 409 아홉 건입니다. 이 테스트는 동시에 같은 좌석이 들어왔을 때 한 건만 확정되는가를 확인하기 위한 correctness test입니다.
+
+![실행한 k6 같은 좌석 경쟁 결과](docs/images/k6-reservation-concurrency.svg)
 
 k6에서는 201, 409, 503을 이 scenario의 expected HTTP status로 표시했습니다. 409는 테스트 실패가 아니라 다른 요청이 먼저 좌석을 확정했다는 정상 경쟁 결과이므로, 기본 http_req_failed 지표에 장애처럼 섞이지 않게 하기 위해서입니다. 별도 custom counter로 생성 건수, 예상 충돌 또는 일시 실패, 예상 밖 결과를 나눠 threshold를 둡니다.
 
@@ -518,6 +531,20 @@ AI 도구를 코드 생성기로만 쓰지 않고, 선택지를 넓게 점검한
 pnpm guidance:check는 AGENTS.md, CLAUDE.md, 두 skill에 이 핵심 개념과 verification command가 모두 있는지, 제거한 별도 ADR workflow 문구가 다시 들어오지 않았는지를 확인합니다. 문서 일관성을 완전히 보장하는 도구는 아니지만, tool entry point가 시간이 지나며 서로 다른 규칙으로 drift하는 가장 단순한 실패를 막는 안전장치입니다.
 
 AI가 제안한 설계나 문장은 바로 제출하지 않습니다. 변경한 불변식의 코드 경로를 읽고, 가장 가까운 unit/e2e를 실행하고, 마지막에 전체 build/lint/smoke로 다시 확인합니다. 이 흐름은 AI를 특별한 기능으로 보이게 하기보다, 반복되는 검토 기준을 파일과 명령으로 남겨 다음 작업에서도 같은 수준으로 검토하려는 방법입니다.
+
+### Skill을 찾게 만드는 description
+
+skill의 frontmatter는 장식용 설명이 아니라, 어떤 작업에서 이 체크리스트를 불러와야 하는지를 좁히는 metadata입니다. description을 단순히 Node.js 개발로 넓게 쓰면 무관한 작업에서도 긴 지침이 끼어들고, 너무 좁게 쓰면 reservation review에서 빠질 수 있습니다. 그래서 기술 이름과 판단 대상, 확인 범위를 함께 넣었습니다.
+
+```yaml
+name: gc-medi-eye-reservation
+description: >
+  Help implement, review, and verify this GC MediEye movie reservation
+  assignment, especially PostgreSQL-backed seat reservation correctness
+  and idempotent retry behavior.
+```
+
+이 문구가 대상으로 삼는 것은 일반적인 CRUD 생성이 아니라 architecture, seat reservation correctness, PostgreSQL behavior, README claims, end-to-end verification입니다. 그 결과 예매 흐름을 고칠 때는 lock 순서와 replay 규칙을, 문서를 고칠 때는 실행 가능한 근거를 먼저 확인하도록 유도합니다. 지침 파일이 많아지는 효과보다, 필요한 순간에 필요한 검토 기준이 적용되는 효과를 우선했습니다.
 
 ### 지침을 나눈 방식과 고도화 과정
 
